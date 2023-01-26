@@ -13,13 +13,13 @@ class ComputeRewards():
         """
         This method will call the getReward and calReward functions to calculate the rewards and return the final reward.
         """
-        reward = getReward(data, self.previous_dataes)
+        reward = get_rewards(data, self.previous_dataes)
         self.previous_dataes.append(data)
         if len(self.previous_dataes) > 5:
             self.previous_dataes.pop(0)
         return torch.tensor(reward, dtype=self.dtype, device=self.device)
 
-def getReward(data, previous_dataes):
+def get_rewards(data, previous_dataes):
     """calculates the reward based on the current frame's data and the previous frames' data.    """
 
     if len(previous_dataes) > 0:
@@ -27,12 +27,12 @@ def getReward(data, previous_dataes):
         if data.car.Health - previous_dataes[0].car.Health < 0:
             health_reward = (data.car.Health -
                              previous_dataes[0].car.Health) * 2
-        reward = calReward(data) + health_reward
+        reward = compute_rewards(data) + health_reward
     else:
-        reward = calReward(data)
+        reward = compute_rewards(data)
     return reward
 
-def calReward(data):
+def compute_rewards(data):
     """calculates the reward based on the current frame's data.    """
 
     assert isinstance(data, GameData)
