@@ -72,6 +72,7 @@ def train():
     policy_network = PolicyNetwork()
     value_network = ValueNetwork()
     optimizer = torch.optim.Adam(policy_network.parameters())
+    eps = 0.1
     for episode in range(num_episodes):
         first_time = True
         print("episode number: " + str(episode))
@@ -125,11 +126,24 @@ def train():
                 advantages = returns - values
 
             policy_loss, value_loss = compute_ppo_loss(action_log_probs, values, advantages, returns,
-                                                       old_action_log_probs, eps=0.2)
+                                                       old_action_log_probs, eps)
             loss = policy_loss + value_loss
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            # mechanism for adjusting the learning rate of the optimizer over time,
+            # which can help the agent converge faster and avoid getting stuck in local optima.
+            if episode % 10 == 0:  # Adjust learning rate
+                for param_group in optimizer.param_groups:
+                    param_group['lr'] *= 0.99
+
+            slow_down_training(sleep_time=0.1)
+
+            if episode % 50 == 0:  # Save model periodically
+                save_model(policy_network, optimizer)
+                save_model(value_network, optimizer)
+
+            eps *= 0.99  # Decreasing epsilon over time
             slow_down_training(sleep_time=0.1)
 
     save_model(policy_network,optimizer)
