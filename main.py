@@ -71,7 +71,11 @@ def save_model(model, optimizer):
 def train():
     policy_network = PolicyNetwork()
     value_network = ValueNetwork()
-    optimizer = torch.optim.Adam(policy_network.parameters())
+
+    # Add weight decay parameter to optimizer
+    optimizer = torch.optim.Adam(policy_network.parameters(), weight_decay=1e-5)
+    #normal optimizer
+    #optimizer = torch.optim.Adam(policy_network.parameters())
     eps = 0.1
     for episode in range(num_episodes):
         first_time = True
