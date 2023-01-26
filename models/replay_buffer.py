@@ -20,3 +20,22 @@ class ReplayBuffer:
 #         buffer.add((x, actions, action_log_probs, values, returns, advantages))
 #         if len(buffer) >= batch_size:
 #             experiences = buffer.sample(batch_size)
+
+
+# update step using experience, to be seen again, need some tests
+#     x_batch, action_batch, old_action_log_probs_batch, value_batch, returns_batch, advantages_batch = zip(*experiences)
+#     x_batch = torch.stack(x_batch)
+#     action_batch = torch.stack(action_batch)
+#     old_action_log_probs_batch = torch.stack(old_action_log_probs_batch)
+#     value_batch = torch.stack(value_batch)
+#     returns_batch = torch.stack(returns_batch)
+#     advantages_batch = torch.stack(advantages_batch)
+#     _, action_log_probs_batch = policy_network.sample(x_batch)
+#     values_batch = value_network(x_batch)
+#
+#     policy_loss, value_loss = compute_ppo_loss(action_log_probs_batch, values_batch, advantages_batch, returns_batch,
+#                                                old_action_log_probs_batch, eps=0.2)
+#     loss = policy_loss + value_loss
+#     optimizer.zero_grad()
+#     loss.backward()
+#     optimizer.step()
