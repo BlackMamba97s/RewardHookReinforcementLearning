@@ -1,3 +1,5 @@
+import os
+
 from PIL import ImageGrab
 
 
@@ -16,4 +18,5 @@ def get_screen(screen_pos):
     left_x, left_y = screen_pos[0]
     right_x, right_y = screen_pos[1]
     image = ImageGrab.grab((left_x, left_y, right_x, right_y))
+    image.save(os.path.join(os.path.dirname(__file__), "screenshot.png"))
     return image

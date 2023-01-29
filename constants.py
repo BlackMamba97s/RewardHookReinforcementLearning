@@ -8,7 +8,7 @@
 # screen_pos = [[leftx, lefty], [leftx + screen_width,
 #                                lefty + screen_height]]
 num_episodes = 1000 # number of episodes, should be around 10k, but im lowering for now
-num_steps = 70 # number of steps for episode, relatively in my car game its the frame itself
+num_steps = 50 # number of steps for episode, relatively in my car game its the frame itself
 near_by_vehicles_limit = 8  # number of nearby vehicles to enter into the network
 near_by_peds_limit = 5  # number of nearby pedestrians to enter into the network
 near_by_props_limit = 20  # number of nearby objects to enter into the network
@@ -17,5 +17,5 @@ near_by_touching_peds_limit = 5  # number of nearby touching pedestrians to ente
 near_by_touching_props_limit = 10  # number of nearby touching objects to enter into the network
 action_list = ['w', 'wa', 'wd', 'sa', 'sd', "s"]
 key_list = "\bABCDEFGHIJKLMNOPQRSTUVWXYZ 123456789,.'£$/\\"
-stuck_threshold=4
+stuck_threshold=2
 health_threshold=50

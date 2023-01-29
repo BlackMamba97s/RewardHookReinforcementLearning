@@ -66,7 +66,6 @@ def get_input_data(dtype, device):
             print("sono qua")
             json = get_game_data(fromNet=True)
             print(json)
-            time.sleep(3)
             data = GameData(json)
             info = getAssistInfo(data)
             info = torch.tensor(info, dtype=dtype, device=device)

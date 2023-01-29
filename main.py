@@ -41,15 +41,38 @@ def preprocess_screen(x):
     x = x.cuda(device=device)
     return x
 
-def compute_returns(data,
-                    discount_factor=0.45):  # discount factor value between 0 and 1, 0 --> prefer immediate rewards || 1 --> future rewards
-    rewards = ComputeRewards(dtype=dtype, device=device)
-    returns = torch.zeros(num_steps + 1, dtype=dtype, device=device)
-    for t in reversed(range(num_steps)):
-        print(returns.shape)
 
-        returns[t] = torch.reshape(rewards.get_reward(data), returns[t].shape) + discount_factor * returns[t + 1]
+def compute_returns(data, discount_factor=0.45):
+    """
+    Computes the discounted returns given the rewards.
+
+    Parameters:
+    - data (any type): data needed to compute the reward
+    - discount_factor (float, optional): discount factor, default is 0.45
+
+    Returns:
+    - returns (Tensor): tensor of shape (183, 1) representing the discounted returns
+    """
+    rewards = ComputeRewards(dtype=dtype, device=device).get_reward(data)
+    num_steps = rewards.shape[0]
+    returns = torch.zeros(num_steps, dtype=rewards.dtype, device=rewards.device)
+    returns[-1] = rewards[-1].reshape(1)
+    for t in range(num_steps - 2, -1, -1):
+        returns[t] = rewards[t].reshape(1) + discount_factor * returns[t + 1]
+
     return returns
+
+# def compute_returns(data,
+#                     discount_factor=0.45):  # discount factor value between 0 and 1, 0 --> prefer immediate rewards || 1 --> future rewards
+#
+#     rewards = ComputeRewards(dtype=dtype, device=device)
+#     print((rewards.get_reward(data)).shape)
+#     returns = torch.zeros(num_steps + 1, dtype=dtype, device=device)
+#     for t in reversed(range(num_steps)):
+#         returns = returns.unsqueeze(-1)
+#         returns[t] = rewards.get_reward(data).reshape(returns[t + 1].shape) + discount_factor * returns[t + 1]
+#
+#     return returns
 
 
 def compute_ppo_loss(action_log_probs, values, advantages, returns, old_action_log_probs, eps):  # eps hyperparameter
@@ -69,14 +92,10 @@ def save_model(model, optimizer):
 
 
 def train():
+    back_to_start()
     policy_network = PolicyNetwork()
     value_network = ValueNetwork()
-
-    # Add weight decay parameter to optimizer
-    optimizer = torch.optim.Adam(policy_network.parameters(), weight_decay=1e-5)
-    #normal optimizer
-    #optimizer = torch.optim.Adam(policy_network.parameters())
-    eps = 0.1
+    optimizer = torch.optim.Adam(policy_network.parameters())
     for episode in range(num_episodes):
         first_time = True
         print("episode number: " + str(episode))
@@ -92,7 +111,7 @@ def train():
                 policy_network.to(device)
                 value_network.to(device)
                 actions, action_log_probs = policy_network.sample(x)
-                vehicle_control_movement(actions[0], duration=0.2)
+                vehicle_control_movement(actions[0].cpu().numpy(), duration=0.2)
                 time.sleep(0.1)
                 old_action_log_probs = action_log_probs.detach()
                 values = value_network(x)
@@ -130,25 +149,12 @@ def train():
                 advantages = returns - values
 
             policy_loss, value_loss = compute_ppo_loss(action_log_probs, values, advantages, returns,
-                                                       old_action_log_probs, eps)
+                                                       old_action_log_probs, eps=0.2)
             loss = policy_loss + value_loss
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            # mechanism for adjusting the learning rate of the optimizer over time,
-            # which can help the agent converge faster and avoid getting stuck in local optima.
-            if episode % 10 == 0:  # Adjust learning rate
-                for param_group in optimizer.param_groups:
-                    param_group['lr'] *= 0.99
-
-            slow_down_training(sleep_time=0.1)
-
-            if episode % 50 == 0:  # Save model periodically
-                save_model(policy_network, optimizer)
-                save_model(value_network, optimizer)
-
-            eps *= 0.99  # Decreasing epsilon over time
-            slow_down_training(sleep_time=0.1)
+            # slow_down_training(sleep_time=0.1)
 
     save_model(policy_network,optimizer)
     save_model(value_network,optimizer)
