@@ -98,19 +98,22 @@ def save_model_if_on_going(policy_network, value_network, optimizer, episode):
         save_model(value_network, optimizer)
 
 
-def episode_evaluation(episode, episode_rewards, return_list, loss_list):
-    avg_rewards = sum(episode_rewards) / num_steps
+def episode_evaluation(episode, reward_list, episode_rewards, return_list, loss_list):
+    avg_rewards = sum(reward_list) / (num_steps * episode)
+    avg_eps_reward = sum(episode_rewards) / num_episodes
     avg_loss = sum(loss_list) / num_steps
     avg_return = sum(return_list) / num_steps
     with open(os.path.join(os.path.dirname(__file__), "evaluation_data.txt"), 'a') as f:
         print("salvo valutazioni")
-        f.write(f'Episode {episode}: --> Total reward: {sum(episode_rewards)} || AVG Reward {avg_rewards} ||  AVG Loss {avg_loss} || AVG Return {avg_return}\n')
+        f.write(f'Episode {episode}: --> Total reward: {sum(episode_rewards)} || AVG Reward tot {avg_rewards} || AVG '
+                f'Reward for the episode {avg_eps_reward} ||  AVG Loss {avg_loss} || AVG Return {avg_return}\n')
         f.write(f'Reward list for that episode: {str(episode_rewards)}\n')
         f.write(f'\n')
 
         f.close()
 
 def train():
+    time.sleep(3) # give time to put the cursor back to the game
     back_to_start()
     policy_network = PolicyNetwork()
     value_network = ValueNetwork()
@@ -120,6 +123,7 @@ def train():
     # normal optimizer
     # optimizer = torch.optim.Adam(policy_network.parameters())
     eps = 0.1
+    reward_list = []
     return_list = []
     loss_list = []
     for episode in range(num_episodes):
@@ -129,9 +133,9 @@ def train():
         stuck_counter = 0
         episode_rewards = []
         for step in range(num_steps):
-            time.sleep(0.3)
+            time.sleep(0.1)
             if not first_time:
-                print("episode number: " + str(episode) + " with step number: " + str(step))
+                print("episode number: " + str(episode + 1) + " with step number: " + str(step))
                 data, info = get_input_data(dtype, device)
                 x = get_screen(screen_pos)
                 x = preprocess_screen(x)
@@ -187,7 +191,7 @@ def train():
             episode_rewards.append(rewards)
             return_list.append(returns)
             loss_list.append(loss)
-
+            reward_list.extend(episode_rewards)
             # mechanism for adjusting the learning rate of the optimizer over time,
             # which can help the agent converge faster and avoid getting stuck in local optima.
             if episode % 10 == 0:  # Adjust learning rate
@@ -195,7 +199,7 @@ def train():
                     param_group['lr'] *= 0.99
                 print('aggiusto learning rate')
 
-            slow_down_training(sleep_time=0.2)
+            # slow_down_training(sleep_time=0.2)
 
             save_model_if_on_going(policy_network, value_network, optimizer, episode)
 
@@ -205,11 +209,12 @@ def train():
                 back_to_start()
 
             eps *= 0.99  # Decreasing epsilon over time
-            slow_down_training(sleep_time=0.2)
+            # slow_down_training(sleep_time=0.2)
 
         # Evaluation Outer Episode part, real evaluation
-        episode_evaluation(episode, [t.item() for t in episode_rewards], [r.item() for r in return_list], [ls.item() for ls in loss_list])
-
+        episode_evaluation(episode + 1, [rl.item() for rl in reward_list], [t.item() for t in episode_rewards], [r.item() for r in return_list], [ls.item() for ls in loss_list])
+        return_list.clear()
+        loss_list.clear()
 
     save_model(policy_network, optimizer)
     save_model(value_network, optimizer)
