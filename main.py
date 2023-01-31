@@ -1,4 +1,5 @@
 import json
+import os
 import time
 
 import cv2
@@ -19,7 +20,6 @@ from util.vehicle_action import back_to_start, vehicle_control_movement, random_
 import torchvision.transforms as transforms
 
 device = torch.device("cuda:0")
-print(device)
 dtype = torch.float32
 
 
@@ -36,7 +36,7 @@ def preprocess_screen(x):
     x = cv2.cvtColor(x, cv2.COLOR_BGR2RGB)
     x = cv2.resize(x, (256, 256))
     x = transforms.ToTensor()(x)
-    x = transforms.Normalize(mean=[0.485, 0.456, 0.406],std=[0.229, 0.224, 0.225])(x)
+    x = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])(x)
     x = x.unsqueeze(0)
     x = x.cuda(device=device)
     return x
@@ -60,7 +60,8 @@ def compute_returns(data, discount_factor=0.45):
     for t in range(num_steps - 2, -1, -1):
         returns[t] = rewards[t].reshape(1) + discount_factor * returns[t + 1]
 
-    return returns
+    return returns, rewards
+
 
 # def compute_returns(data,
 #                     discount_factor=0.45):  # discount factor value between 0 and 1, 0 --> prefer immediate rewards || 1 --> future rewards
@@ -91,21 +92,48 @@ def save_model(model, optimizer):
     }, 'checkpoint.pth')
 
 
+def save_model_if_on_going(policy_network, value_network, optimizer, episode):
+    if episode % 50 == 0:  # Save model periodically
+        save_model(policy_network, optimizer)
+        save_model(value_network, optimizer)
+
+
+def episode_evaluation(episode, episode_rewards, return_list, loss_list):
+    avg_rewards = sum(episode_rewards) / num_steps
+    avg_loss = sum(loss_list) / num_steps
+    avg_return = sum(return_list) / num_steps
+    with open(os.path.join(os.path.dirname(__file__), "evaluation_data.txt"), 'a') as f:
+        print("salvo valutazioni")
+        f.write(f'Episode {episode}: --> Total reward: {sum(episode_rewards)} || AVG Reward {avg_rewards} ||  AVG Loss {avg_loss} || AVG Return {avg_return}\n')
+        f.write(f'Reward list for that episode: {str(episode_rewards)}\n')
+        f.write(f'\n')
+
+        f.close()
+
 def train():
     back_to_start()
     policy_network = PolicyNetwork()
     value_network = ValueNetwork()
-    optimizer = torch.optim.Adam(policy_network.parameters())
+
+    # Add weight decay parameter to optimizer
+    optimizer = torch.optim.Adam(policy_network.parameters(), weight_decay=1e-5)
+    # normal optimizer
+    # optimizer = torch.optim.Adam(policy_network.parameters())
+    eps = 0.1
+    return_list = []
+    loss_list = []
     for episode in range(num_episodes):
+        back_to_start()
         first_time = True
-        print("episode number: " + str(episode))
+        print()
         stuck_counter = 0
+        episode_rewards = []
         for step in range(num_steps):
+            time.sleep(0.3)
             if not first_time:
-                print("step number: " + str(step))
+                print("episode number: " + str(episode) + " with step number: " + str(step))
                 data, info = get_input_data(dtype, device)
                 x = get_screen(screen_pos)
-                print("questa e' x ", x)
                 x = preprocess_screen(x)
                 x = x.to(device)
                 policy_network.to(device)
@@ -115,9 +143,9 @@ def train():
                 time.sleep(0.1)
                 old_action_log_probs = action_log_probs.detach()
                 values = value_network(x)
-                returns = compute_returns(data, info)
+                returns, rewards = compute_returns(data, info)
                 advantages = returns - values
-                if data.car.Speed < 0.1:
+                if data.car.Speed < 0.5:
                     stuck_counter += 1
                 else:
                     stuck_counter = 0
@@ -135,7 +163,6 @@ def train():
                 vehicle_control_movement(actions[0], duration=0.2)
                 time.sleep(0.1)
                 x = get_screen(screen_pos)
-                print("questa e' x ", x)
                 x = preprocess_screen(x)
                 x = x.to(device)
                 policy_network.to(device)
@@ -145,18 +172,47 @@ def train():
                 actions, action_log_probs = policy_network.sample(x)
                 old_action_log_probs = action_log_probs.detach()
                 values = value_network(x)
-                returns = compute_returns(data, info)
+                returns, rewards = compute_returns(data, info)
                 advantages = returns - values
 
             policy_loss, value_loss = compute_ppo_loss(action_log_probs, values, advantages, returns,
-                                                       old_action_log_probs, eps=0.2)
+                                                       old_action_log_probs, eps)
+
             loss = policy_loss + value_loss
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            # slow_down_training(sleep_time=0.1)
 
-    save_model(policy_network,optimizer)
-    save_model(value_network,optimizer)
+            # Inner Episode Evaluation part, evaluation part after the end of episode
+            episode_rewards.append(rewards)
+            return_list.append(returns)
+            loss_list.append(loss)
+
+            # mechanism for adjusting the learning rate of the optimizer over time,
+            # which can help the agent converge faster and avoid getting stuck in local optima.
+            if episode % 10 == 0:  # Adjust learning rate
+                for param_group in optimizer.param_groups:
+                    param_group['lr'] *= 0.99
+                print('aggiusto learning rate')
+
+            slow_down_training(sleep_time=0.2)
+
+            save_model_if_on_going(policy_network, value_network, optimizer, episode)
+
+            if episode == num_episodes / 2 or episode == num_episodes / 5:
+                slow_down_training(sleep_time=60)  # I'm having a problem with GTA V going on a loop of loading,
+                # let's see if by taking a 1-minute break every 10% we can avoid it.
+                back_to_start()
+
+            eps *= 0.99  # Decreasing epsilon over time
+            slow_down_training(sleep_time=0.2)
+
+        # Evaluation Outer Episode part, real evaluation
+        episode_evaluation(episode, [t.item() for t in episode_rewards], [r.item() for r in return_list], [ls.item() for ls in loss_list])
+
+
+    save_model(policy_network, optimizer)
+    save_model(value_network, optimizer)
+
 
 train()

@@ -22,8 +22,6 @@ import win32api
 
 def from_vector_to_keys(vec):  # vector converted in key argument, easy to use
 
-    print(vec)
-    print(len(vec))
     # assert len(vec) == 6
     index = np.argmax(vec)
     return action_list[index]

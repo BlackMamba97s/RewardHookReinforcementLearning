@@ -63,9 +63,8 @@ def get_game_data(fromNet):
 def get_input_data(dtype, device):
     while True:
         try:
-            print("sono qua")
             json = get_game_data(fromNet=True)
-            print(json)
+            # print(json)
             data = GameData(json)
             info = getAssistInfo(data)
             info = torch.tensor(info, dtype=dtype, device=device)
