@@ -85,17 +85,17 @@ def compute_ppo_loss(action_log_probs, values, advantages, returns, old_action_l
     return policy_loss, value_loss
 
 
-def save_model(model, optimizer):
+def save_model(model, name, optimizer):
     torch.save({
         'model': model,
         'optimizer': optimizer.state_dict(),
-    }, 'checkpoint.pth')
+    }, 'checkpoint'+str(name)+'.pth')
 
 
 def save_model_if_on_going(policy_network, value_network, optimizer, episode):
     if episode % 50 == 0:  # Save model periodically
-        save_model(policy_network, optimizer)
-        save_model(value_network, optimizer)
+        save_model(policy_network, '_policy_network', optimizer)
+        save_model(value_network, '_value_network', optimizer)
 
 
 def episode_evaluation(episode, reward_list, episode_rewards, return_list, loss_list):
@@ -155,12 +155,11 @@ def train():
                     stuck_counter = 0
                 if stuck_counter > stuck_threshold:
                     back_to_start()
-                    stuck_counter = 0
-                    continue
+                    break
 
                 if data.car.Health < health_threshold:
                     back_to_start()
-                    continue
+                    break
             else:
                 first_time = False
                 actions = random_action()
@@ -216,8 +215,8 @@ def train():
         return_list.clear()
         loss_list.clear()
 
-    save_model(policy_network, optimizer)
-    save_model(value_network, optimizer)
+    save_model(policy_network, '_policy_network', optimizer)
+    save_model(value_network, '_value_network', optimizer)
 
 
 train()
