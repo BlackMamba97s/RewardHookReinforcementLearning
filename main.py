@@ -1,5 +1,6 @@
 import json
 import os
+import random
 import time
 
 import cv2
@@ -89,7 +90,7 @@ def save_model(model, name, optimizer):
     torch.save({
         'model': model,
         'optimizer': optimizer.state_dict(),
-    }, 'checkpoint'+str(name)+'.pth')
+    }, 'checkpoint' + str(name) + '.pth')
 
 
 def save_model_if_on_going(policy_network, value_network, optimizer, episode):
@@ -98,23 +99,32 @@ def save_model_if_on_going(policy_network, value_network, optimizer, episode):
         save_model(value_network, '_value_network', optimizer)
 
 
-def episode_evaluation(episode, reward_list, episode_rewards, return_list, loss_list):
+def episode_evaluation(episode, reward_list, episode_rewards, return_list, loss_list, good_ep, bad_episode_stuck,
+                       bad_episode_car, bad_episode_penalties):
     avg_rewards = sum(reward_list) / (num_steps * episode)
     avg_eps_reward = sum(episode_rewards) / num_episodes
     avg_loss = sum(loss_list) / num_steps
     avg_return = sum(return_list) / num_steps
+    tot_bad = bad_episode_car + bad_episode_stuck + bad_episode_penalties
     with open(os.path.join(os.path.dirname(__file__), "evaluation_data.txt"), 'a') as f:
         print("salvo valutazioni")
         f.write(f'Episode {episode}: --> Total reward: {sum(episode_rewards)} || AVG Reward tot {avg_rewards} || AVG '
                 f'Reward for the episode {avg_eps_reward} ||  AVG Loss {avg_loss} || AVG Return {avg_return}\n')
         f.write(f'Reward list for that episode: {str(episode_rewards)}\n')
+        f.write(f'Total Episodes till now --> Good: ' + str(good_ep) + " Total Bad: " + str(tot_bad) + "of which --> "
+                                                                                                       "for car "
+                                                                                               "stuck: " +
+                str(bad_episode_stuck) + " for car health: " + str(bad_episode_car) + " for big penalties: " +
+                str(bad_episode_penalties))
         f.write(f'\n')
 
         f.close()
 
+
 def train():
-    time.sleep(3) # give time to put the cursor back to the game
+    time.sleep(3)  # give time to put the cursor back to the game
     back_to_start()
+    time.sleep(2)  # give time to put the cursor back to the game
     policy_network = PolicyNetwork()
     value_network = ValueNetwork()
 
@@ -126,14 +136,32 @@ def train():
     reward_list = []
     return_list = []
     loss_list = []
+    total_step = 0
+    good_episodes = 0
+    bad_episodes_for_stuck = 0
+    bad_episodes_for_car_damage = 0
+    bad_episodes_for_big_penalties = 0  # sometimes the car crash, but it bounce back in the track and so it does not
+    # stop, but we need to penalize that actions
+    first_time = True
     for episode in range(num_episodes):
         back_to_start()
-        first_time = True
+        time.sleep(1.5)  # give time to put the cursor back to the game
         print()
         stuck_counter = 0
         episode_rewards = []
+
+        x = random.randint(0,9)
+        if x == 0: # random action again, 10%
+            first_time = True
+        if episode > 600 and episode % 600 == 0:
+            back_to_start()
+            slow_down_training(sleep_time=30)
+
         for step in range(num_steps):
-            time.sleep(0.1)
+            tot_possible_step = episode * num_steps
+            print("the total step used by the agent are: " + str(total_step) + " compared to the total step if the agent "
+                                                                          "would not have a bad episode: " + str(tot_possible_step))
+            total_step += 1
             if not first_time:
                 print("episode number: " + str(episode + 1) + " with step number: " + str(step))
                 data, info = get_input_data(dtype, device)
@@ -154,11 +182,19 @@ def train():
                 else:
                     stuck_counter = 0
                 if stuck_counter > stuck_threshold:
-                    back_to_start()
+                    bad_episodes_for_stuck += 1
                     break
-
                 if data.car.Health < health_threshold:
-                    back_to_start()
+                    bad_episodes_for_car_damage += 1
+                    break
+                if rewards <= - 23.39: # I noticed the datas in the episode in which the reward reach a certain point,
+                    # start to become useless or even break a few moment after, I think the threshold might be around
+                    # 23.5-23.6, at a reward of -23.4 or below, it starts to become random, so it might be still a
+                    # valid episode, not necessarily good, but useful
+                    # -23.39 might be the minimum threshold from the data i collected
+                    print("reward: " + str(rewards.item()) + " e' >= di -23.39" )
+                    bad_episodes_for_big_penalties += 1
+                    print("Too bad episode, might cause by a crash or a bad start, restart")
                     break
             else:
                 first_time = False
@@ -202,16 +238,13 @@ def train():
 
             save_model_if_on_going(policy_network, value_network, optimizer, episode)
 
-            if episode == num_episodes / 2 or episode == num_episodes / 5:
-                slow_down_training(sleep_time=60)  # I'm having a problem with GTA V going on a loop of loading,
-                # let's see if by taking a 1-minute break every 10% we can avoid it.
-                back_to_start()
-
             eps *= 0.99  # Decreasing epsilon over time
             # slow_down_training(sleep_time=0.2)
 
         # Evaluation Outer Episode part, real evaluation
-        episode_evaluation(episode + 1, [rl.item() for rl in reward_list], [t.item() for t in episode_rewards], [r.item() for r in return_list], [ls.item() for ls in loss_list])
+        episode_evaluation(episode + 1, [rl.item() for rl in reward_list], [t.item() for t in episode_rewards],
+                           [r.item() for r in return_list], [ls.item() for ls in loss_list], good_episodes,
+                           bad_episodes_for_stuck, bad_episodes_for_car_damage, bad_episodes_for_big_penalties)
         return_list.clear()
         loss_list.clear()
 
