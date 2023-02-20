@@ -50,7 +50,9 @@ def calReward(data):
     is_player_in_water = data.is_player_in_water
     reward = 0
     if data.onRoad:
-        reward += 1
+        reward += 10
+    else:
+        reward -= 10
     if not against_traffic:
         reward += 1
     if not drove_on_pavement:
@@ -62,9 +64,9 @@ def calReward(data):
     reward -= diff_Speed
     if not is_player_in_water:
         reward += 1
-    reward -= num_near_by_vehicle
-    reward -= len_near_by_touching_peds
-    reward -= len_near_by_touching_props
-    reward -= len_near_by_touching_vehicles
+    reward -= num_near_by_vehicle + 1
+    reward -= len_near_by_touching_peds + 1
+    reward -= len_near_by_touching_props + 1
+    reward -= len_near_by_touching_vehicles + 1
     print("reward is ", reward)
     return reward

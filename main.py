@@ -23,6 +23,8 @@ import torchvision.transforms as transforms
 device = torch.device("cuda:0")
 dtype = torch.float32
 
+#SEMANTIC SEGMENTATION --> BIRD HIGH VIEW
+
 
 # def preprocess_screen(x):
 #     x = np.array(x)
@@ -86,18 +88,23 @@ def compute_ppo_loss(action_log_probs, values, advantages, returns, old_action_l
     return policy_loss, value_loss
 
 
-def save_model(model, name, optimizer):
+def save_model(epoch, model, name, optimizer, loss):
+
     torch.save({
+        'epoch': epoch,
         'model': model,
-        'optimizer': optimizer.state_dict(),
+        'optimizer': optimizer,
+        'loss': loss,
     }, 'checkpoint' + str(name) + '.pth')
 
 
-def save_model_if_on_going(policy_network, value_network, optimizer, episode):
-    if episode % 50 == 0:  # Save model periodically
-        save_model(policy_network, '_policy_network', optimizer)
-        save_model(value_network, '_value_network', optimizer)
-
+def save_model_if_on_going(episode, policy_network, value_network, optimizer, loss):
+    if episode > 4 and episode % 5 == 0:  # Save model periodically
+        save_model(episode, policy_network, '_policy_network', optimizer, loss)
+        save_model(episode, value_network, '_value_network', optimizer, loss)
+        
+        print("modello salvato")
+        exit(-1)
 
 def episode_evaluation(episode, reward_list, episode_rewards, return_list, loss_list, good_ep, bad_episode_stuck,
                        bad_episode_car, bad_episode_penalties):
@@ -122,16 +129,36 @@ def episode_evaluation(episode, reward_list, episode_rewards, return_list, loss_
 
 
 def train():
-    time.sleep(3)  # give time to put the cursor back to the game
-    back_to_start()
-    time.sleep(2)  # give time to put the cursor back to the game
     policy_network = PolicyNetwork()
     value_network = ValueNetwork()
-
     # Add weight decay parameter to optimizer
-    optimizer = torch.optim.Adam(policy_network.parameters(), weight_decay=1e-5)
+    optimizer = torch.optim.Adam(list(policy_network.parameters()) + list(value_network.parameters()), lr= 0.001,  weight_decay=1e-5)
     # normal optimizer
     # optimizer = torch.optim.Adam(policy_network.parameters())
+    loss = 0.0
+
+    if os.path.exists("checkpoint_policy_network.pth") and os.path.exists("checkpoint_value_network.pth"):
+        print("Existing models loading .....")
+        policy_checkpoint = torch.load("checkpoint_policy_network.pth")
+        policy_network.load_state_dict((policy_checkpoint['model']))
+        value_checkpoint = torch.load("checkpoint_value_network.pth")
+        value_network.load_state_dict((value_checkpoint['model']))
+        optimizer.load_state_dict(policy_checkpoint['optimizer'])
+        #optimizer.load_state_dict(value_checkpoint['optimizer'])
+        epoch = policy_checkpoint['epoch']
+        loss = policy_checkpoint['loss']
+        print("Models loaded...")
+    else:
+        print("no checkpoint found, starting from scratch")
+        epoch = 0
+
+
+
+
+    time.sleep(3)  # give time to put the cursor back to the game
+
+
+
     eps = 0.1
     reward_list = []
     return_list = []
@@ -144,6 +171,8 @@ def train():
     # stop, but we need to penalize that actions
     first_time = True
     for episode in range(num_episodes):
+        to_stop = False
+        big_penalties_counter = 0
         back_to_start()
         time.sleep(1.5)  # give time to put the cursor back to the game
         print()
@@ -153,9 +182,9 @@ def train():
         x = random.randint(0,9)
         if x == 0: # random action again, 10%
             first_time = True
-        if episode > 600 and episode % 600 == 0:
-            back_to_start()
-            slow_down_training(sleep_time=30)
+        # if episode > 600 and episode % 600 == 0:
+        #     back_to_start()
+        #     slow_down_training(sleep_time=30)
 
         for step in range(num_steps):
             tot_possible_step = episode * num_steps
@@ -183,19 +212,30 @@ def train():
                     stuck_counter = 0
                 if stuck_counter > stuck_threshold:
                     bad_episodes_for_stuck += 1
-                    break
-                if data.car.Health < health_threshold:
-                    bad_episodes_for_car_damage += 1
-                    break
-                if rewards <= - 23.39: # I noticed the datas in the episode in which the reward reach a certain point,
+                    to_stop = True
+                print(" is on road? " + str(data.onRoad))
+                # if data.car.Health < health_threshold:
+                #     bad_episodes_for_car_damage += 1
+                #     break
+                if rewards <= - 27.00 and big_penalties_counter < 3: # I noticed the datas in the episode in which the reward reach a certain point,
+                    big_penalties_counter += 1
                     # start to become useless or even break a few moment after, I think the threshold might be around
                     # 23.5-23.6, at a reward of -23.4 or below, it starts to become random, so it might be still a
                     # valid episode, not necessarily good, but useful
                     # -23.39 might be the minimum threshold from the data i collected
+                else:
+                    big_penalties_counter = 0 # reset
+
+                if big_penalties_counter >= 3:
                     print("reward: " + str(rewards.item()) + " e' >= di -23.39" )
                     bad_episodes_for_big_penalties += 1
                     print("Too bad episode, might cause by a crash or a bad start, restart")
-                    break
+                    to_stop = True
+
+                if rewards >= 10:
+                    to_stop = True
+                    good_episodes +=1
+                    print("Finally a good episode, with the reward: " + str(rewards.item()) + " this is the " + str(good_episodes) + " good episode.")
             else:
                 first_time = False
                 actions = random_action()
@@ -207,7 +247,6 @@ def train():
                 policy_network.to(device)
                 value_network.to(device)
                 data, info = get_input_data(dtype, device)
-                time.sleep(0.1)
                 actions, action_log_probs = policy_network.sample(x)
                 old_action_log_probs = action_log_probs.detach()
                 values = value_network(x)
@@ -229,17 +268,20 @@ def train():
             reward_list.extend(episode_rewards)
             # mechanism for adjusting the learning rate of the optimizer over time,
             # which can help the agent converge faster and avoid getting stuck in local optima.
-            if episode % 10 == 0:  # Adjust learning rate
+            if episode > 700 and episode % 700 == 0:  # Adjust learning rate
                 for param_group in optimizer.param_groups:
                     param_group['lr'] *= 0.99
                 print('aggiusto learning rate')
 
             # slow_down_training(sleep_time=0.2)
 
-            save_model_if_on_going(policy_network, value_network, optimizer, episode)
+            save_model_if_on_going(episode, policy_network.state_dict(), value_network.state_dict(), optimizer.state_dict(), loss)
 
             eps *= 0.99  # Decreasing epsilon over time
             # slow_down_training(sleep_time=0.2)
+
+            if to_stop:
+                break
 
         # Evaluation Outer Episode part, real evaluation
         episode_evaluation(episode + 1, [rl.item() for rl in reward_list], [t.item() for t in episode_rewards],
@@ -248,8 +290,8 @@ def train():
         return_list.clear()
         loss_list.clear()
 
-    save_model(policy_network, '_policy_network', optimizer)
-    save_model(value_network, '_value_network', optimizer)
+    save_model(num_episodes, policy_network.state_dict(), '_policy_network', optimizer.state_dict(), loss.state_dict())
+    save_model(num_episodes, value_network.state_dict(), '_value_network', optimizer.state_dict(), loss.state_dict())
 
 
 train()
